@@ -1,0 +1,12 @@
+[package]
+name = "argcall"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+argcall_derive = { path = "../argcall_derive", version = "=0.1.0" }
+thiserror = { workspace = true }

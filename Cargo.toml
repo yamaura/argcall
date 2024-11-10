@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["Yuki Yamaura <ymruki@gmail.com>"]
+edition = "2021"
+license = "MIT"
+description = "derive macro of clap"
+homepage = "https://github.com/yamaura/clcall"
+repository = "https://github.com/yamaura/clcall"
+
+[workspace.metadata.release]
+push = false
+tag-name = "{{prefix}}{{version}}"
+pre-release-commit-message = "Bump version to {{version}}"
+tag-message = "{{tag_name}}"
+
+[workspace.metadata.docs.rs]
+all-features = true
+
+[workspace.dependencies]
+thiserror = "1"
