@@ -7,9 +7,9 @@ version = "0.1.0"
 authors = ["Yuki Yamaura <ymruki@gmail.com>"]
 edition = "2021"
 license = "MIT"
-description = "derive macro of clap"
-homepage = "https://github.com/yamaura/clcall"
-repository = "https://github.com/yamaura/clcall"
+description = "Enables enums and structs to be callable by associating functions with their variants or fields."
+homepage = "https://github.com/yamaura/argcall"
+repository = "https://github.com/yamaura/argcall"
 
 [workspace.metadata.release]
 push = false

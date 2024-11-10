@@ -1,10 +1,10 @@
-use proc_macro::TokenStream;
+use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DeriveInput, Ident};
+use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Ident, LitStr, Variant};
 
 /// A procedural macro to derive the Callable trait
 #[proc_macro_derive(Callable, attributes(argcall))]
-pub fn callable_derive(input: TokenStream) -> TokenStream {
+pub fn callable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     // Parse the input token stream as a DeriveInput struct
     let input = parse_macro_input!(input as DeriveInput);
 
@@ -29,51 +29,22 @@ pub fn callable_derive(input: TokenStream) -> TokenStream {
     let mut variant_structs = Vec::new();
     let mut match_arms = Vec::new();
 
-    // Process each variant in the enum
-    for variant in data.variants {
-        let variant_name = variant.ident;
-
-        let func_path = variant
-            .attrs
-            .iter()
-            .filter(|attr| attr.path().is_ident("argcall"))
-            .map(parse_fn_attribute)
-            .next()
-            .expect("Expected #[argcall(fn = \"...\")] attribute on variant")
-            .unwrap();
-
-        let struct_name = Ident::new(
-            &format!("{}{}Callable", enum_name, variant_name),
-            variant_name.span(),
-        );
-
-        // Generate the struct for the variant
-        let variant_struct = quote! {
-            #[derive(clap::Parser, Clone, Debug)]
-            pub struct #struct_name;
-
-            impl argcall::Callable for #struct_name {
-                type Output = #output_type;
-                fn call_fn(&self, _: ()) -> bool {
-                    #func_path()
-                }
-            }
-        };
-        variant_structs.push(variant_struct);
-
-        // Generate a match arm for the variant in the enum's `call_fn`
-        let match_arm = quote! {
-            #enum_name::#variant_name => #func_path(),
-        };
-        match_arms.push(match_arm);
-    }
+    data.variants
+        .iter()
+        .try_for_each(|variant| {
+            let (variant_struct, match_arm) = parse_variant(&enum_name, &output_type, variant)?;
+            variant_structs.push(variant_struct);
+            match_arms.push(match_arm);
+            Ok::<(), syn::Error>(())
+        })
+        .unwrap();
 
     let expanded = quote! {
         #(#variant_structs)*
 
         impl argcall::Callable for #enum_name {
             type Output = #output_type;
-            fn call_fn(&self, _: ()) -> bool {
+            fn call_fn(&self, _: ()) -> #output_type {
                 match self {
                     #(#match_arms)*
                 }
@@ -81,7 +52,83 @@ pub fn callable_derive(input: TokenStream) -> TokenStream {
         }
     };
 
-    TokenStream::from(expanded)
+    proc_macro::TokenStream::from(expanded)
+}
+
+fn parse_variant(
+    enum_name: &Ident,
+    output_type: &TokenStream,
+    variant: &Variant,
+) -> Result<(TokenStream, TokenStream), syn::Error> {
+    let variant_name = variant.ident.clone();
+
+    let func_token = variant
+        .attrs
+        .iter()
+        .filter(|attr| attr.path().is_ident("argcall"));
+
+    match &variant.fields {
+        Fields::Unit => {
+            let func_token = func_token
+                .map(|attr| parse_fn_attribute(attr, std::iter::empty()))
+                .next()
+                .unwrap_or_else(|| {
+                    Err(syn::Error::new_spanned(
+                        variant,
+                        "expected an 'argcall' attribute",
+                    ))
+                })?;
+
+            let struct_name = Ident::new(
+                &format!("{}{}Callable", enum_name, variant_name),
+                variant_name.span(),
+            );
+
+            // Generate the struct for the variant
+            let variant_struct = quote! {
+                #[derive(Clone, Debug)]
+                pub struct #struct_name;
+
+                impl argcall::Callable for #struct_name {
+                    type Output = #output_type;
+                    fn call_fn(&self, _: ()) -> #output_type {
+                        #func_token
+                    }
+                }
+            };
+
+            let match_arm = quote! {
+                #enum_name::#variant_name => #func_token,
+            };
+            Ok((variant_struct, match_arm))
+        }
+        Fields::Unnamed(_) => {
+            let match_arm = quote! {
+                #enum_name::#variant_name(value) => argcall::Callable::call_fn(value, ()),
+            };
+            Ok((TokenStream::new(), match_arm))
+        }
+        Fields::Named(fields) => {
+            let names = fields
+                .named
+                .iter()
+                .map(|field| field.ident.clone().unwrap());
+            let func_token = func_token
+                .map(|attr| parse_fn_attribute(attr, names.clone()))
+                .next()
+                .unwrap_or_else(|| {
+                    Err(syn::Error::new_spanned(
+                        variant,
+                        "expected an 'argcall' attribute",
+                    ))
+                })?;
+
+            let match_arm = quote! {
+                #enum_name::#variant_name { #(#names),* } => #func_token,
+            };
+            Ok((TokenStream::new(), match_arm))
+        }
+    }
 }
 
 fn parse_output_attribute(attr: &Attribute) -> Result<proc_macro2::TokenStream, syn::Error> {
@@ -101,7 +148,10 @@ fn parse_output_attribute(attr: &Attribute) -> Result<proc_macro2::TokenStream, 
     output.ok_or_else(|| syn::Error::new_spanned(attr, "expected an 'output' attribute"))
 }
 
-fn parse_fn_attribute(attr: &Attribute) -> Result<proc_macro2::TokenStream, syn::Error> {
+fn parse_fn_attribute(
+    attr: &Attribute,
+    args: impl Iterator<Item = Ident> + Clone,
+) -> Result<proc_macro2::TokenStream, syn::Error> {
     let mut f = None;
 
     attr.parse_nested_meta(|meta| {
@@ -109,6 +159,13 @@ fn parse_fn_attribute(attr: &Attribute) -> Result<proc_macro2::TokenStream, syn:
         if ident == "fn" {
             let value = meta.value()?;
             f = Some(value.parse()?);
+            return Ok(());
+        }
+        if ident == "fn_path" {
+            let value: LitStr = meta.value()?.parse()?;
+            let ident = Ident::new(&value.value(), value.span());
+            let args = args.clone();
+            f = Some(quote! { #ident(#(#args),*) });
             return Ok(());
         }
 
