@@ -8,5 +8,5 @@ repository.workspace = true
 license.workspace = true
 
 [dependencies]
-argcall_derive = { path = "../argcall_derive", version = "=0.3.0" }
+argcall_derive = { path = "../argcall_derive", version = "=0.3.1" }
 thiserror = { workspace = true }
