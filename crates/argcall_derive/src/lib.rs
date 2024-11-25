@@ -2,11 +2,52 @@ use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Ident, LitStr, Variant};
 
+#[derive(Debug, Copy, Clone)]
+enum CallableType {
+    Callable,
+    CallableMut,
+    CallableOnce,
+}
+
+impl CallableType {
+    fn as_trait(&self) -> TokenStream {
+        match self {
+            CallableType::Callable => quote! { argcall::Callable },
+            CallableType::CallableMut => quote! { argcall::CallableMut },
+            CallableType::CallableOnce => quote! { argcall::CallableOnce },
+        }
+    }
+
+    fn as_fn(&self) -> TokenStream {
+        match self {
+            CallableType::Callable => quote! { call_fn(&self, _: ()) },
+            CallableType::CallableMut => quote! { call_fn_mut(&mut self, _: ()) },
+            CallableType::CallableOnce => quote! { call_fn_once(self, _: ()) },
+        }
+    }
+}
+
 /// A procedural macro to derive the Callable trait
 #[proc_macro_derive(Callable, attributes(argcall))]
 pub fn callable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
-    // Parse the input token stream as a DeriveInput struct
     let input = parse_macro_input!(input as DeriveInput);
+    generic_callable(CallableType::Callable, input)
+}
+
+#[proc_macro_derive(CallableMut, attributes(argcall))]
+pub fn callable_mut_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    generic_callable(CallableType::CallableMut, input)
+}
+
+#[proc_macro_derive(CallableOnce, attributes(argcall))]
+pub fn callable_once_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    generic_callable(CallableType::CallableOnce, input)
+}
+
+fn generic_callable(callable_type: CallableType, input: DeriveInput) -> proc_macro::TokenStream {
+    // Parse the input token stream as a DeriveInput struct
 
     // Get the enum name
     let enum_name = input.ident;
@@ -32,19 +73,23 @@ pub fn callable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
     data.variants
         .iter()
         .try_for_each(|variant| {
-            let (variant_struct, match_arm) = parse_variant(&enum_name, &output_type, variant)?;
+            let (variant_struct, match_arm) =
+                parse_variant(callable_type, &enum_name, &output_type, variant)?;
             variant_structs.push(variant_struct);
             match_arms.push(match_arm);
             Ok::<(), syn::Error>(())
         })
         .unwrap();
 
+    let trait_name = callable_type.as_trait();
+    let fn_type = callable_type.as_fn();
+
     let expanded = quote! {
         #(#variant_structs)*
 
-        impl argcall::Callable for #enum_name {
+        impl #trait_name for #enum_name {
             type Output = #output_type;
-            fn call_fn(&self, _: ()) -> #output_type {
+            fn #fn_type -> #output_type {
                 match self {
                     #(#match_arms)*
                 }
@@ -56,6 +101,7 @@ pub fn callable_derive(input: proc_macro::TokenStream) -> proc_macro::TokenStrea
 }
 
 fn parse_variant(
+    callable_type: CallableType,
     enum_name: &Ident,
     output_type: &TokenStream,
     variant: &Variant,
@@ -66,6 +112,9 @@ fn parse_variant(
         .attrs
         .iter()
         .filter(|attr| attr.path().is_ident("argcall"));
+
+    let trait_name = callable_type.as_trait();
+    let fn_type = callable_type.as_fn();
 
     match &variant.fields {
         Fields::Unit => {
@@ -89,9 +138,9 @@ fn parse_variant(
                 #[derive(Clone, Debug)]
                 pub struct #struct_name;
 
-                impl argcall::Callable for #struct_name {
+                impl #trait_name for #struct_name {
                     type Output = #output_type;
-                    fn call_fn(&self, _: ()) -> #output_type {
+                    fn #fn_type -> #output_type {
                         #func_token
                     }
                 }
@@ -103,8 +152,22 @@ fn parse_variant(
             Ok((variant_struct, match_arm))
         }
         Fields::Unnamed(_) => {
+            // like this:
+            // #enum_name::#variant_name(value) => argcall::Callable::call_fn(value, ()),
             let match_arm = quote! {
-                #enum_name::#variant_name(value) => argcall::Callable::call_fn(value, ()),
+                #enum_name::#variant_name(value) =>
+            };
+
+            let match_arm = match callable_type {
+                CallableType::Callable => {
+                    quote! { #match_arm argcall::Callable::call_fn(value, ()) }
+                }
+                CallableType::CallableMut => {
+                    quote! { #match_arm argcall::CallableMut::call_fn_mut(value, ()) }
+                }
+                CallableType::CallableOnce => {
+                    quote! { #match_arm argcall::CallableOnce::call_fn_once(value, ()) }
+                }
             };
             Ok((TokenStream::new(), match_arm))
         }

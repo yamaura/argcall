@@ -20,6 +20,8 @@
 /// - `#[argcall(fn = <function(arg)>) or fn_path = "<function_path(arg)>"]`: Allows binding a function with
 ///   an argument, typically used for named fields that provide a specific value to the function.
 pub use argcall_derive::Callable;
+pub use argcall_derive::CallableMut;
+pub use argcall_derive::CallableOnce;
 
 pub trait Tuple {}
 impl Tuple for () {}
@@ -27,4 +29,34 @@ impl Tuple for () {}
 pub trait Callable<Args: Tuple = ()> {
     type Output;
     fn call_fn(&self, args: Args) -> Self::Output;
+}
+
+pub trait CallableMut<Args: Tuple = ()> {
+    type Output;
+    fn call_fn_mut(&mut self, args: Args) -> Self::Output;
+}
+
+impl<T, Args: Tuple> CallableMut<Args> for T
+where
+    T: Callable<Args>,
+{
+    type Output = T::Output;
+    fn call_fn_mut(&mut self, args: Args) -> Self::Output {
+        self.call_fn(args)
+    }
+}
+
+pub trait CallableOnce<Args: Tuple = ()> {
+    type Output;
+    fn call_fn_once(self, args: Args) -> Self::Output;
+}
+
+impl<T, Args: Tuple> CallableOnce<Args> for T
+where
+    T: CallableMut<Args>,
+{
+    type Output = T::Output;
+    fn call_fn_once(mut self, args: Args) -> Self::Output {
+        self.call_fn_mut(args)
+    }
 }
