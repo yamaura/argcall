@@ -160,13 +160,13 @@ fn parse_variant(
 
             let match_arm = match callable_type {
                 CallableType::Callable => {
-                    quote! { #match_arm argcall::Callable::call_fn(value, ()) }
+                    quote! { #match_arm argcall::Callable::call_fn(value, ()), }
                 }
                 CallableType::CallableMut => {
-                    quote! { #match_arm argcall::CallableMut::call_fn_mut(value, ()) }
+                    quote! { #match_arm argcall::CallableMut::call_fn_mut(value, ()), }
                 }
                 CallableType::CallableOnce => {
-                    quote! { #match_arm argcall::CallableOnce::call_fn_once(value, ()) }
+                    quote! { #match_arm argcall::CallableOnce::call_fn_once(value, ()), }
                 }
             };
             Ok((TokenStream::new(), match_arm))
