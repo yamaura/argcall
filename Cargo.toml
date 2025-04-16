@@ -5,7 +5,7 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.3.1"
 authors = ["Yuki Yamaura <ymruki@gmail.com>"]
-edition = "2021"
+edition = "2024"
 license = "MIT"
 description = "Enables enums and structs to be callable by associating functions with their variants or fields."
 homepage = "https://github.com/yamaura/argcall"
