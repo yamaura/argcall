@@ -1,6 +1,6 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::{parse_macro_input, Attribute, Data, DeriveInput, Fields, Ident, LitStr, Variant};
+use syn::{Attribute, Data, DeriveInput, Fields, Ident, LitStr, Variant, parse_macro_input};
 
 #[derive(Debug, Copy, Clone)]
 enum CallableType {
@@ -235,5 +235,5 @@ fn parse_fn_attribute(
         Err(meta.error(format!("unrecognized attribute for argcall: {}", ident)))
     })?;
 
-    f.ok_or_else(|| syn::Error::new_spanned(attr, "expected an 'fn' attribute"))
+    f.ok_or_else(|| syn::Error::new_spanned(attr, "expected an 'fn' or 'fn_path' attribute"))
 }
